@@ -2,6 +2,7 @@ target
 *.iml
 out/
 .idea
-.setting
-.setting/
+.settings
+.settings/
 .project
+bin/
