@@ -2,6 +2,7 @@ package us.codecraft.webmagic.downloader;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
 import org.apache.http.annotation.ThreadSafe;
 import org.apache.http.client.config.CookieSpecs;
@@ -96,7 +97,6 @@ public class HttpClientDownloader implements Downloader {
         } else {
             acceptStatCode = Sets.newHashSet(200);
         }
-        logger.info("downloading page " + request.getUrl());
         RequestBuilder requestBuilder = RequestBuilder.get().setUri(request.getUrl());
         if (headers != null) {
             for (Map.Entry<String, String> headerEntry : headers.entrySet()) {
@@ -108,15 +108,19 @@ public class HttpClientDownloader implements Downloader {
                 .setSocketTimeout(site.getTimeOut())
                 .setConnectTimeout(site.getTimeOut())
                 .setCookieSpec(CookieSpecs.BEST_MATCH);
-        if (site != null && site.getHttpProxy() != null) {
-            requestConfigBuilder.setProxy(site.getHttpProxy());
-        }
+        //==============
+		HttpHost host = site.getHttpProxyFromPool();
+		requestConfigBuilder.setProxy(host);
+		request.putExtra(Request.PROXY, host);
         requestBuilder.setConfig(requestConfigBuilder.build());
         CloseableHttpResponse httpResponse = null;
+        int statusCode=0;
         try {
             httpResponse = getHttpClient(site).execute(requestBuilder.build());
-            int statusCode = httpResponse.getStatusLine().getStatusCode();
+            statusCode = httpResponse.getStatusLine().getStatusCode();
+            request.putExtra(Request.STATUS_CODE, statusCode);
             if (acceptStatCode.contains(statusCode)) {
+            	logger.info("download page success >>>> " + request.getUrl());
                 //charset
                 if (charset == null) {
                     String value = httpResponse.getEntity().getContentType().getValue();
@@ -124,16 +128,20 @@ public class HttpClientDownloader implements Downloader {
                 }
                 return handleResponse(request, charset, httpResponse, task);
             } else {
-                logger.warn("code error " + statusCode + "\t" + request.getUrl());
+                logger.warn("code error " + statusCode + "\t" + request.getUrl()+" >>>>use proxy:"+host);
+                if (site.getCycleRetryTimes() > 0) {
+                    return addToCycleRetry(request, site);
+                }
                 return null;
             }
         } catch (IOException e) {
-            logger.warn("download page " + request.getUrl() + " error", e);
+            logger.warn("download page " + request.getUrl() + " error"+" >>>> use proxy:"+host, e);
             if (site.getCycleRetryTimes() > 0) {
                 return addToCycleRetry(request, site);
             }
             return null;
         } finally {
+        	request.putExtra(Request.STATUS_CODE, statusCode);
             try {
                 if (httpResponse != null) {
                     //ensure the connection is released back to pool

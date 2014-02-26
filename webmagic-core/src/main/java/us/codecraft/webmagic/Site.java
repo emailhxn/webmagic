@@ -1,10 +1,14 @@
 package us.codecraft.webmagic;
 
+
+
+
+
 import org.apache.http.HttpHost;
+
+import us.codecraft.webmagic.proxy.ProxyPool;
 import us.codecraft.webmagic.utils.UrlUtils;
-
 import java.util.*;
-
 /**
  * Object contains setting for crawler.<br>
  *
@@ -41,8 +45,8 @@ public class Site {
 
     private Map<String, String> headers = new HashMap<String, String>();
 
-    private HttpHost httpProxy;
-
+    private ProxyPool httpProxyPool=new ProxyPool();;
+    
     private boolean useGzip = true;
 
     public static interface HeaderConst {
@@ -306,19 +310,7 @@ public class Site {
         return this;
     }
 
-    public HttpHost getHttpProxy() {
-        return httpProxy;
-    }
 
-    /**
-     * set up httpProxy for this site
-     * @param httpProxy
-     * @return
-     */
-    public Site setHttpProxy(HttpHost httpProxy) {
-        this.httpProxy = httpProxy;
-        return this;
-    }
 
     public boolean isUseGzip() {
         return useGzip;
@@ -406,4 +398,34 @@ public class Site {
                 ", headers=" + headers +
                 '}';
     }
+
+	/**
+	 * set up httpProxy for this site
+	 * 
+	 * @param httpProxy
+	 * @return
+	 */
+	public Site setHttpProxyPool(List<String[]> httpProxyList) {
+		this.httpProxyPool.addProxy(httpProxyList.toArray(new String[][]{}));
+		return this;
+	}
+
+	public ProxyPool getHttpProxyPool() {
+		return httpProxyPool;
+	}
+
+	public HttpHost getHttpProxyFromPool() {
+
+		return httpProxyPool.getProxy();
+	}
+
+	public void returnHttpProxyToPool(HttpHost proxy,int statusCode) {
+		httpProxyPool.returnProxy(proxy,statusCode);
+	}
+	
+	public Site setProxyReuseInterval(int reuseInterval) {
+		this.httpProxyPool.setReuseInterval(reuseInterval);
+		return this;
+	}
+
 }

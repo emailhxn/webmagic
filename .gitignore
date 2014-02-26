@@ -2,4 +2,6 @@ target
 *.iml
 out/
 .idea
-
+.setting
+.setting/
+.project

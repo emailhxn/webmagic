@@ -2,10 +2,12 @@ package us.codecraft.webmagic;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.http.HttpHost;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import us.codecraft.webmagic.downloader.Downloader;
 import us.codecraft.webmagic.downloader.HttpClientDownloader;
+import us.codecraft.webmagic.downloader.UrlDupFilter;
 import us.codecraft.webmagic.pipeline.CollectorPipeline;
 import us.codecraft.webmagic.pipeline.ConsolePipeline;
 import us.codecraft.webmagic.pipeline.Pipeline;
@@ -65,8 +67,10 @@ public class Spider implements Runnable, Task {
     protected Downloader downloader;
 
     protected List<Pipeline> pipelines = new ArrayList<Pipeline>();
+    
+    protected List<Pipeline> skipPipelines = new ArrayList<Pipeline>();
 
-    protected PageProcessor pageProcessor;
+	protected PageProcessor pageProcessor;
 
     protected List<Request> startRequests;
 
@@ -103,7 +107,8 @@ public class Spider implements Runnable, Task {
     private final AtomicInteger threadAlive = new AtomicInteger(0);
 
     private final AtomicLong pageCount = new AtomicLong(0);
-
+    
+    private UrlDupFilter urlDupFilter=new UrlDupFilter();
     /**
      * create a spider with pageProcessor.
      *
@@ -215,6 +220,20 @@ public class Spider implements Runnable, Task {
         this.pipelines.add(pipeline);
         return this;
     }
+    
+    /**
+     * add a pipeline for Spider
+     *
+     * @param pipeline
+     * @return this
+     * @see Pipeline
+     * @since 0.2.1
+     */
+    public Spider addSkipUrlPipeline(Pipeline pipeline) {
+    	checkIfRunning();
+    	this.skipPipelines.add(pipeline);
+    	return this;
+    }
 
     /**
      * set pipelines for Spider
@@ -308,11 +327,14 @@ public class Spider implements Runnable, Task {
                             processRequest(requestFinal);
                         } catch (Exception e) {
                             logger.error("download " + requestFinal + " error", e);
-                        } finally {
-                            threadAlive.decrementAndGet();
-                            pageCount.incrementAndGet();
-                            signalNewUrl();
-                        }
+						} finally {
+							site.returnHttpProxyToPool((HttpHost) requestFinal.getExtra(Request.PROXY), (Integer) requestFinal
+									.getExtra(Request.STATUS_CODE));
+							//
+							threadAlive.decrementAndGet();
+							pageCount.incrementAndGet();
+							signalNewUrl();
+						}
                     }
                 });
             }
@@ -376,19 +398,29 @@ public class Spider implements Runnable, Task {
             return;
         }
         // for cycle retry
-        if (page.getRawText() == null) {
-            extractAndAddRequests(page);
-            sleep(site.getSleepTime());
-            return;
-        }
+		if (page.getRawText() == null) {
+			if (CollectionUtils.isNotEmpty(page.getTargetRequests())) {
+				addRequest(page.getTargetRequests().get(0));
+				logger.info("cycle retry:"+page.getTargetRequests().get(0).getUrl());
+			}
+			sleep(site.getSleepTime());
+			return;
+		}
         pageProcessor.process(page);
         extractAndAddRequests(page);
-        if (!page.getResultItems().isSkip()) {
-            for (Pipeline pipeline : pipelines) {
-                pipeline.process(page.getResultItems(), this);
-            }
-        }
-        sleep(site.getSleepTime());
+		if (!page.getResultItems().isSkip()) {
+			for (Pipeline pipeline : pipelines) {
+				pipeline.process(page.getResultItems(), this);
+			}
+		}else{
+			for (Pipeline pipeline : skipPipelines) {
+				pipeline.process(page.getResultItems(), this);
+			}
+		}
+		request.putExtra(Request.STATUS_CODE, page.getStatusCode());
+		// site.returnHttpProxyToPool(page.getProxy(), page.getStatusCode());
+		// urlDupFilter.put(request.getUrl());
+		sleep(site.getSleepTime());
     }
 
     protected void sleep(int time) {
@@ -434,8 +466,11 @@ public class Spider implements Runnable, Task {
      */
     public Spider addUrl(String... urls) {
         for (String url : urls) {
-            addRequest(new Request(url));
+        	if(!urlDupFilter.contains(url)){
+        		addRequest(new Request(url));
+        	}
         }
+//        urlDupFilter.clean();
         signalNewUrl();
         return this;
     }
@@ -656,4 +691,20 @@ public class Spider implements Runnable, Task {
     public Site getSite() {
         return site;
     }
+    
+    public Spider setSkipUrl(List<String> skipUrlList){
+    	for (String url : skipUrlList) {
+        	this.urlDupFilter.put(url);
+		}
+    	return this;
+	}
+
+	public List<Pipeline> getSkipPipelines() {
+		return skipPipelines;
+	}
+
+	public Spider setSkipPipelines(List<Pipeline> skipPipelines) {
+		this.skipPipelines = skipPipelines;
+		return this;
+	}
 }
